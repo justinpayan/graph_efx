@@ -201,7 +201,7 @@ if __name__ == "__main__":
     for s in range(100000):
         if s % 50 == 0:
             print(s)
-        np.random.seed(0)
+        np.random.seed(s)
 
         num_goods = 5
         valuations = np.random.randint(low=1, high=10, size=(3, num_goods))
