@@ -199,11 +199,11 @@ def exhaustive_sim_triplet(algo):
 if __name__ == "__main__":
     # exhaustive_sim_triplet(efx_among_triplet)
     for s in range(100000):
-        if s % 50 == 0:
+        if s % 5000 == 0:
             print(s)
         np.random.seed(s)
 
-        num_goods = 5
+        num_goods = 6
         valuations = np.random.randint(low=1, high=10, size=(3, num_goods))
         # valuations = np.array([[4, 2, 5, 7, 1], [8, 7, 4, 1, 5], [8, 3, 5, 1, 6]])
 
