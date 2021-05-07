@@ -2,7 +2,18 @@ import numpy as np
 from numpy.random import default_rng
 import sys
 
+from copy import deepcopy
 from itertools import permutations, chain, combinations, product
+
+
+def strong_envy_in_path(alloc, val_fns, edge_list):
+    envies = []
+    for e in edge_list:
+        if alloc[e[1]]:
+            val_self = np.sum(val_fns[e[0], alloc[e[0]]])
+            val_other = np.sum(val_fns[e[0], alloc[e[1]]]) - np.min(val_fns[e[0], alloc[e[1]]])
+            envies.append(max([val_other - val_self, 0]))
+    return envies
 
 
 def strong_envy_in_triplet(alloc, val_fns):
@@ -121,6 +132,52 @@ def efx_among_triplet(val_fns):
         counter += 1
 
 
+"""Returns True if v1 is leximin greater than or equal to v2"""
+
+
+def leximin_comparator(v1, v2):
+    _v1 = sorted(v1)
+    _v2 = sorted(v2)
+
+    if _v1[0] > _v2[0]:
+        return True
+    elif _v1[0] < _v2[0]:
+        return False
+    else:
+        return _v1[1] >= _v2[1]
+
+
+"""
+Given this allocation and these valuations, rebalance the goods that e[0] and e[1] are currently assigned so 
+that they are LEXIMIN with each other.
+"""
+
+
+def fix_edge_leximin(alloc, val_fns, e):
+    good_set = set(alloc[e[0]]) | set(alloc[e[1]])
+    best_vec = [-1, -1]
+    best_alloc = None
+    for a0 in powerset(good_set):
+        g0 = list(a0)
+        g1 = list(good_set - set(a0))
+
+        v0 = np.sum(val_fns[e[0], g0])
+        v1 = np.sum(val_fns[e[1], g1])
+
+        if leximin_comparator([v0, v1], best_vec):
+            best_vec = [v0, v1]
+            best_alloc = [g0, g1]
+    # Check if we actually haven't improved at all, if so, return what we originally had
+    orig_v0 = np.sum(val_fns[e[0], alloc[e[0]]])
+    orig_v1 = np.sum(val_fns[e[1], alloc[e[1]]])
+    if leximin_comparator([orig_v0, orig_v1], best_vec) and leximin_comparator(best_vec, [orig_v0, orig_v1]):
+        return alloc
+    else:
+        alloc[e[0]] = sorted(best_alloc[0])
+        alloc[e[1]] = sorted(best_alloc[1])
+        return alloc
+
+
 """
 Given this allocation and these valuations, rebalance the goods that e[0] and e[1] are currently assigned so 
 that they are EFX with each other.
@@ -141,6 +198,62 @@ def fix_edge(alloc, val_fns, e):
         return None
 
 
+def calc_min_score(alloc, val_fns):
+    scores = []
+    for a, bundle in enumerate(alloc):
+        scores.append(np.sum(val_fns[a, bundle]))
+    # print(scores)
+    return np.min(scores)
+
+
+def compute_update(alloc, val_fns, e, min_score, done):
+    alloc_before = deepcopy(alloc)
+    alloc = fix_edge_leximin(alloc, val_fns, e)
+    if alloc != alloc_before:
+        done = False
+
+    new_min = calc_min_score(alloc, val_fns)
+    if new_min >= min_score:
+        min_score = new_min
+    else:
+        print("min decreased from %d to %d" % (min_score, new_min))
+        print(val_fns)
+        print(alloc)
+        sys.exit(0)
+    return alloc, min_score, done
+
+
+"""
+val_fns: nxm numpy array, the ij element is the value of good j for agent i
+edge_list: list of tuples (i, i'), which indicate the edges along which we must be leximin, and they also
+            indicate the order for rebalancing goods under the iterative algorithm
+"""
+
+
+def pairwise_leximin_on_graph(val_fns, edge_list):
+    n, m = val_fns.shape
+
+    alloc = [list(range(m))] + [list() for _ in range(n - 1)]
+
+    # Fix edges in edge_list in forward then reverse order.
+    done = False
+    min_score = -1
+    while not done:
+        done = True
+        for e in edge_list:
+            alloc, min_score, done = compute_update(alloc, val_fns, e, min_score, done)
+            # print("\t" + str(min_score))
+            # print(alloc)
+
+        # Go backwards now. We just finished the last edge, so skip it.
+        for e in edge_list[::-1][1:]:
+            alloc, min_score, done = compute_update(alloc, val_fns, e, min_score, done)
+            # print("\t" + str(min_score))
+            # print(alloc)
+
+    return alloc
+
+
 """
 val_fns: nxm numpy array, the ij element is the value of good j for agent i
 edge_list: list of tuples (i, i'), which indicate the edges along which we must be EFX, and they also
@@ -159,19 +272,47 @@ def efx_on_graph(val_fns, edge_list):
     # Fix edges in edge_list in forward then reverse order.
     g_efx = False
     ctr = 0
+    min_score = -1
     while not g_efx:
+        # print(alloc)
+        # print(strong_envy_in_path(alloc, val_fns, edge_list))
+
         # print(ctr)
-        ctr += 1
+        # ctr += 1
+        # if ctr > m / 2:
+        #     print("ctr exceeded m")
+        #     print(ctr)
+        #     print(val_fns)
+        #     sys.exit(1)
         g_efx = True
         for e in edge_list:
             if not is_efx(alloc[e[0]], alloc[e[1]], e[0], e[1], val_fns):
                 g_efx = False
                 alloc = fix_edge(alloc, val_fns, e)
+                # alloc = fix_edge_leximin(alloc, val_fns, e)
+
+                new_min = calc_min_score(alloc, val_fns)
+                if new_min >= min_score:
+                    min_score = new_min
+                else:
+                    print("min decreased from %d to %d" % (min_score, new_min))
+                    print(val_fns)
+                    print(alloc)
+        # print(alloc)
         # Go backwards now. We just finished the last edge, so skip it.
         for e in edge_list[::-1][1:]:
             if not is_efx(alloc[e[0]], alloc[e[1]], e[0], e[1], val_fns):
                 g_efx = False
                 alloc = fix_edge(alloc, val_fns, e)
+                # alloc = fix_edge_leximin(alloc, val_fns, e)
+
+        new_min = calc_min_score(alloc, val_fns)
+        if new_min >= min_score or np.isclose(new_min, min_score):
+            min_score = new_min
+        else:
+            print("min decreased from %d to %d" % (min_score, new_min))
+            print(repr(val_fns))
+            print(alloc)
 
     return alloc
 
@@ -255,36 +396,38 @@ def exhaustive_sim_triplet(algo):
 
 if __name__ == "__main__":
     # exhaustive_sim_triplet(efx_among_triplet)
-    n = 6
+    n = 5
     edges = [(i, i + 1) for i in range(n - 1)]
 
-    m = 15
+    m = 10
 
-    # valuations = np.array([[2, 2, 6, 6, 8, 7, 7, 3, 4, 4],
-    #                        [4, 5, 1, 3, 6, 4, 2, 8, 5, 7],
-    #                        [4, 1, 5, 9, 2, 6, 8, 8, 8, 3],
-    #                        [7, 3, 2, 6, 9, 4, 6, 6, 6, 5]])
+    # valuations = np.array([[2, 2, 3, 4, 7, 1],
+    #    [1, 4, 2, 4, 8, 2],
+    #    [6, 3, 1, 1, 5, 7]])
     # print(efx_on_graph(valuations, edges))
 
-    for s in range(100000):
+    for s in range(10000):
         np.random.seed(s)
 
-        rng = default_rng()
-        vals = rng.standard_normal(10)
-        more_vals = rng.standard_normal(10)
-        valuations = rng.exponential(scale=10, size=(n, m))
-        # valuations = np.random.randint(low=1, high=100, size=(n, m))
+        # rng = default_rng()
+        # vals = rng.standard_normal(10)
+        # more_vals = rng.standard_normal(10)
+        # valuations = rng.exponential(scale=10, size=(n, m))
+        valuations = np.random.randint(low=1, high=10, size=(n, m))
         # valuations *= 1/np.sum(valuations, axis=1)
         # valuations = np.array([[4, 2, 5, 7, 1], [8, 7, 4, 1, 5], [8, 3, 5, 1, 6]])
 
-        if not efx_on_graph(valuations, edges):
+        # if not efx_on_graph(valuations, edges):
+        # print(repr(valuations))
+        if not pairwise_leximin_on_graph(valuations, edges):
             print(valuations)
             sys.exit(1)
 
-        if s % 100 == 0:
+        if s % 10 == 0:
             print(s)
-            print(valuations)
-            print(efx_on_graph(valuations, edges))
+            print(repr(valuations))
+            # print(efx_on_graph(valuations, edges))
+            print(pairwise_leximin_on_graph(valuations, edges))
         # print(valuations)
         # if not efx_among_triplet(valuations):
         #     print(valuations)
