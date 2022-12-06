@@ -207,7 +207,7 @@ def exhaustive_sim_triplet(algo):
 
 
 def load_valuations_spliddit():
-    with open(os.path.join("C:\\", "Users", "Justin Payan", "Downloads", "valuations.csv")) as f:
+    with open("valuations.csv") as f:
         instance_id = -1
         instance = {}
         goods = set()
